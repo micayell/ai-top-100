@@ -29,6 +29,11 @@ GEMINI_MODELS = [
     "gemini-3.6-flash",
 ]
 
+INLINE_MEDIA_URL_PATTERN = re.compile(
+    r"(https?://\S+\.(?:jpg|jpeg|png|gif|webp|m4a|mp3|wav|ogg)(?:\?\S*)?|https://talk\.kakaocdn\.net/\S+)",
+    re.IGNORECASE,
+)
+
 
 def _clean_html(raw_html: str) -> str:
     """HTML 문서에서 <style>, <script>, base64 이미지 및 태그를 제거하고 순수 텍스트만 추출합니다."""
@@ -97,7 +102,7 @@ def load_data_knowledge_base() -> str:
     data/ 폴더의 모든 정본 문서를 읽어 하나의 통합 지식 베이스 컨텍스트로 구축합니다.
     """
     if not DATA_DIR.exists():
-        logger.warning(f"Data directory not found: {DATA_DIR}")
+        logger.warning(f"Data directory not found: {DATA_DIR} (external contest data is excluded via .gitignore)")
         return ""
 
     target_files = [
@@ -226,7 +231,7 @@ def run_data_agent(
 
     # 첨부 미디어(이미지/오디오) URL 확인
     media_url = session.get("pending_media_url")
-    url_in_text = re.search(r"(https?://\S+\.(?:jpg|jpeg|png|webp|m4a|mp3|wav)(?:\?\S*)?)", utterance, re.IGNORECASE)
+    url_in_text = INLINE_MEDIA_URL_PATTERN.search(utterance)
     if url_in_text:
         media_url = url_in_text.group(1)
     media_part = _fetch_media_part(media_url) if media_url else None
