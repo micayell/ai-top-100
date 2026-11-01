@@ -399,13 +399,14 @@ def _resolve_cloudflared_bin() -> Optional[str]:
 def start_tunnel_thread() -> None:
     """
     기존에 실행 중인 cloudflared 프로세스가 있으면 기존 웹훅 URL을 재사용하고,
-    미실행 시 터널 바이너리가 존재할 때만 백그라운드 터널을 기동합니다.
+    미실행 시 IDE/파이썬 종료 시에도 함께 꺼지지 않도록 완전 분리된(Detached) 프로세스로 기동합니다.
     """
     # noinspection SpellCheckingInspection
     def run_tunnel() -> None:
         time.sleep(1.0)
         try:
             tunnel_file = BASE_DIR / "tunnel_url.txt"
+            tunnel_log = BASE_DIR / "tunnel.log"
             if os.name == "nt":
                 check = subprocess.run(
                     ["tasklist", "/FI", "IMAGENAME eq cloudflared.exe"],
@@ -443,32 +444,59 @@ def start_tunnel_thread() -> None:
                 )
                 return
 
-            logger.info("Starting persistent cloudflared tunnel...")
-            popen_kwargs: Dict[str, Any] = {
-                "stdout": subprocess.PIPE,
-                "stderr": subprocess.STDOUT,
-                "text": True,
-                "encoding": "utf-8",
-                "errors": "ignore",
-            }
-            if os.name == "nt":
-                popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            if tunnel_log.exists():
+                try:
+                    tunnel_log.unlink()
+                except OSError:
+                    pass
 
-            proc = subprocess.Popen(
-                [cloudflared_bin, "tunnel", "--url", "http://127.0.0.1:8000"],
-                **popen_kwargs,
-            )
-            if proc.stdout:
-                for line in proc.stdout:
-                    match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
-                    if match:
-                        url = match.group(0)
-                        logger.info("\n==================================================")
-                        logger.info(f"🚀 PUBLIC WEBHOOK URL: {url}/webhook")
-                        logger.info(f"🚀 PUBLIC SKILL URL:   {url}/skill/chat")
-                        logger.info("==================================================\n")
-                        with open(tunnel_file, "w", encoding="utf-8") as f:
-                            f.write(f"{url}/webhook")
+            logger.info("Starting persistent detached cloudflared tunnel...")
+            if os.name == "nt":
+                # IDE(PyCharm 등)에서 server.py를 Stop 해도 cloudflared.exe가 절대 같이 종료되지 않도록
+                # PowerShell Start-Process로 독립 프로세스 생성 및 --logfile 사용
+                ps_cmd = (
+                    f"Start-Process -FilePath '{cloudflared_bin}' "
+                    f"-ArgumentList 'tunnel','--url','http://127.0.0.1:8000','--logfile','{tunnel_log}' "
+                    f"-WindowStyle Hidden"
+                )
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", ps_cmd],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore",
+                )
+            else:
+                subprocess.Popen(
+                    [
+                        cloudflared_bin,
+                        "tunnel",
+                        "--url",
+                        "http://127.0.0.1:8000",
+                        "--logfile",
+                        str(tunnel_log),
+                    ],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+
+            # tunnel.log에서 발급된 trycloudflare.com URL 감지 (최대 15초 대기)
+            for _ in range(30):
+                time.sleep(0.5)
+                if not tunnel_log.exists():
+                    continue
+                log_text = tunnel_log.read_text(encoding="utf-8", errors="ignore")
+                match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", log_text)
+                if match:
+                    url = match.group(0)
+                    logger.info("\n==================================================")
+                    logger.info(f"🚀 PUBLIC WEBHOOK URL: {url}/webhook")
+                    logger.info(f"🚀 PUBLIC SKILL URL:   {url}/skill/chat")
+                    logger.info("==================================================\n")
+                    tunnel_file.write_text(f"{url}/webhook", encoding="utf-8")
+                    return
         except Exception as e:
             logger.error(f"Tunnel error: {e}")
 
