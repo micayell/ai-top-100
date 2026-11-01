@@ -1,0 +1,41 @@
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# Downloaded contest data & external assets (저작권/대외비 데이터 및 첨부파일)
+data/
+*.zip
+*.pdf
+*.xlsx
+*.docx
+
+# Third-party binaries & executables (외부 다운로드 실행 파일)
+cloudflared.exe
+*.exe
+
+# Runtime generated files & logs (런타임 생성 파일 및 로그)
+tunnel_url.txt
+*.log
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+env/
+venv/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDEs & OS specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
